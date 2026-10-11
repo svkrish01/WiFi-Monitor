@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wi-Fi Hotspot Traffic Monitor</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+    <!-- Top Navigation Header -->
+    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-30 px-4 sm:px-6 py-3.5 shadow-sm">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"></path>
+                    </svg>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2.5">
+                        <h1 class="font-bold text-lg text-white tracking-tight">Hotspot Traffic Monitor</h1>
+                        <span id="statusDot" title="Connecting..." class="relative flex h-2.5 w-2.5 cursor-help">
+                            <span id="statusDotPing" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span id="statusDotCore" class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                        </span>
+                    </div>
+                    <p class="text-xs text-slate-400">Monitoring clients on <span id="ifaceText" class="font-mono text-indigo-400 font-semibold">Wi-Fi</span></p>
+                </div>
+            </div>
+
+            <!-- Header Controls -->
+            <div class="flex items-center gap-2 sm:gap-3 flex-wrap">
+                <div class="flex items-center bg-slate-800/90 rounded-lg p-1 border border-slate-700/80 text-xs">
+                    <span class="text-slate-400 px-2 font-medium">Auto-Refresh:</span>
+                    <select id="autoRefreshSelect" class="bg-transparent text-white font-medium focus:outline-none cursor-pointer pr-1">
+                        <option value="0" class="bg-slate-900">Off</option>
+                        <option value="10" selected class="bg-slate-900">10s</option>
+                        <option value="30" class="bg-slate-900">30s</option>
+                        <option value="60" class="bg-slate-900">60s</option>
+                    </select>
+                </div>
+
+                <button id="refreshBtn" onclick="fetchData()" class="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 transition text-slate-200 text-xs font-semibold px-3 py-2 rounded-lg border border-slate-700 shadow-sm">
+                    <svg id="refreshIcon" class="w-3.5 h-3.5 text-indigo-400 transition-transform duration-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                    Refresh
+                </button>
+
+                <button onclick="openAliasModal()" class="flex items-center gap-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 text-xs font-semibold px-3 py-2 rounded-lg transition">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+                    </svg>
+                    Device Names
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+        <!-- Controls & Filters Section -->
+        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl space-y-4">
+            <!-- Row 1: Live / Static Mode Toggle & Quick Time Presets -->
+            <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+                <div class="flex items-center gap-3 flex-wrap">
+                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Mode:</span>
+                    <!-- Live Window Mode Toggle -->
+                    <div class="inline-flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs shadow-inner">
+                        <button id="btnLiveMode" onclick="setLiveMode(true)" class="flex items-center gap-1.5 px-3 py-1 rounded-md font-semibold bg-emerald-600 text-white shadow-sm transition">
+                            <span class="w-2 h-2 rounded-full bg-white animate-pulse"></span>
+                            Live (Rolling)
+                        </button>
+                        <button id="btnStaticMode" onclick="setLiveMode(false)" class="flex items-center gap-1.5 px-3 py-1 rounded-md font-medium text-slate-400 hover:text-white transition">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Static (Frozen)
+                        </button>
+                    </div>
+
+                    <div class="h-4 w-px bg-slate-800 hidden sm:block"></div>
+
+                    <!-- Presets -->
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider mr-1">Window:</span>
+                        <button onclick="setWindowPreset(15)" class="preset-btn px-2.5 py-1 rounded-md text-xs font-semibold bg-indigo-600 text-white shadow-sm" data-minutes="15">Last 15m</button>
+                        <button onclick="setWindowPreset(60)" class="preset-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-minutes="60">Last 1h</button>
+                        <button onclick="setWindowPreset(360)" class="preset-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-minutes="360">Last 6h</button>
+                        <button onclick="setWindowPreset(1440)" class="preset-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-minutes="1440">Last 24h</button>
+                        <button onclick="setWindowPreset(10080)" class="preset-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700 transition" data-minutes="10080">Last 7d</button>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-3 text-xs">
+                    <span id="liveClock" class="font-mono text-slate-400">--:--:--</span>
+                </div>
+            </div>
+
+            <!-- Row 2: Detailed Filters Filter Bar -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
+                
+                <!-- Filter Mode Selector (Narrower: 2 cols) -->
+                <div class="lg:col-span-2 space-y-1.5">
+                    <label class="block text-xs font-semibold text-slate-300">Filter By Mode</label>
+                    <div class="relative">
+                        <select id="filterMode" onchange="handleFilterModeChange()" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 truncate">
+                            <option value="all" selected>🌐 All Traffic</option>
+                            <option value="host">🖨️ Host IP (Both)</option>
+                            <option value="from">📤 Source IP (From)</option>
+                            <option value="to">📥 Dest IP (To)</option>
+                            <option value="pair">↔️ Exact Pair</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Target IP or Pair Selector (Narrower: 2 cols) -->
+                <div class="lg:col-span-2 space-y-1.5" id="targetSelectContainer">
+                    <label id="targetLabel" class="block text-xs font-semibold text-slate-300 truncate">Target Host / IP</label>
+                    <select id="targetSelect" onchange="fetchData()" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 truncate">
+                        <option value="">Loading devices...</option>
+                    </select>
+                </div>
+
+                <!-- Granularity / Bucket Selector (2 cols) -->
+                <div class="lg:col-span-2 space-y-1.5">
+                    <label class="block text-xs font-semibold text-slate-300 truncate">Bucket Resolution</label>
+                    <select id="bucketSelect" onchange="fetchData()" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 truncate">
+                        <option value="auto" selected>⚡ Auto Resolution</option>
+                        <option value="60">1 Min (Fine)</option>
+                        <option value="300">5 Minutes</option>
+                        <option value="600">10 Minutes</option>
+                        <option value="1800">30 Minutes</option>
+                        <option value="3600">1 Hour</option>
+                    </select>
+                </div>
+
+                <!-- Custom Start DateTime (Wider: 3 cols) -->
+                <div class="lg:col-span-3 space-y-1.5">
+                    <label class="block text-xs font-semibold text-slate-300">From Date/Time</label>
+                    <input type="datetime-local" id="startTime" oninput="handleManualDateChange()" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono">
+                </div>
+
+                <!-- Custom End DateTime (Wider: 3 cols) -->
+                <div class="lg:col-span-3 space-y-1.5">
+                    <label class="block text-xs font-semibold text-slate-300">To Date/Time</label>
+                    <input type="datetime-local" id="endTime" oninput="handleManualDateChange()" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono">
+                </div>
+
+            </div>
+
+            <!-- Filter Execution & Reset Action -->
+            <div class="flex items-center justify-between pt-1 text-xs">
+                <div class="text-slate-400">
+                    <span id="activeFilterDesc">Showing all traffic involving selected host</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="resetFilters()" class="text-slate-400 hover:text-slate-200 underline font-medium">Reset Filters</button>
+                    <button onclick="fetchData()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 py-1.5 rounded-lg transition shadow-md shadow-indigo-600/30">Apply Filter</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- KPI Metric Cards Grid -->
+        <section class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <!-- Total Packets -->
+            <div class="bg-slate-900/90 border border-slate-800 p-4 rounded-xl shadow-lg relative overflow-hidden group hover:border-slate-700 transition">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-medium text-slate-400">Total Packets</span>
+                    <span class="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                    </span>
+                </div>
+                <div class="text-2xl font-bold text-white tracking-tight" id="kpiTotalPackets">0</div>
+                <p class="text-[11px] text-slate-500 mt-1" id="kpiBucketDesc">in selected window</p>
+                <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 opacity-60"></div>
+            </div>
+
+            <!-- Estimated Volume -->
+            <div class="bg-slate-900/90 border border-slate-800 p-4 rounded-xl shadow-lg relative overflow-hidden group hover:border-slate-700 transition">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-medium text-slate-400">Traffic Volume</span>
+                    <span class="p-1.5 bg-cyan-500/10 text-cyan-400 rounded-lg">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                    </span>
+                </div>
+                <div class="text-2xl font-bold text-cyan-300 tracking-tight" id="kpiTotalVolume">0 B</div>
+                <p class="text-[11px] text-slate-500 mt-1">Payload volume</p>
+                <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-cyan-500 opacity-60"></div>
+            </div>
+
+            <!-- Peak Rate -->
+            <div class="bg-slate-900/90 border border-slate-800 p-4 rounded-xl shadow-lg relative overflow-hidden group hover:border-slate-700 transition">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-medium text-slate-400">Peak Burst Rate</span>
+                    <span class="p-1.5 bg-amber-500/10 text-amber-400 rounded-lg">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    </span>
+                </div>
+                <div class="text-2xl font-bold text-amber-300 tracking-tight" id="kpiPeakRate">0</div>
+                <p class="text-[11px] text-slate-500 mt-1">Max pkts / bucket</p>
+                <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500 opacity-60"></div>
+            </div>
+
+            <!-- Active Streams -->
+            <div class="bg-slate-900/90 border border-slate-800 p-4 rounded-xl shadow-lg relative overflow-hidden group hover:border-slate-700 transition">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-medium text-slate-400">Active Streams</span>
+                    <span class="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                    </span>
+                </div>
+                <div class="text-2xl font-bold text-emerald-300 tracking-tight" id="kpiActivePairs">0</div>
+                <p class="text-[11px] text-slate-500 mt-1" id="kpiEndpoints">Distinct pairs</p>
+                <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500 opacity-60"></div>
+            </div>
+        </section>
+
+        <!-- Main Timeline Chart Card -->
+        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <h2 class="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                        <span>Traffic Activity Over Time</span>
+                        <span id="chartResolutionPill" class="text-xs px-2 py-0.5 bg-slate-800 text-indigo-400 rounded border border-slate-700">Resolution: 10m</span>
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-0.5" id="chartSubtitle">Timeline of packet rates per time bucket</p>
+                </div>
+
+                <!-- Chart Presentation Options -->
+                <div class="flex items-center gap-2">
+                    <div class="inline-flex rounded-lg bg-slate-950 p-1 border border-slate-800 text-xs">
+                        <button id="chartTypeBar" onclick="setChartType('bar')" class="px-2.5 py-1 rounded font-medium bg-indigo-600 text-white shadow-sm">Bar</button>
+                        <button id="chartTypeLine" onclick="setChartType('line')" class="px-2.5 py-1 rounded font-medium text-slate-400 hover:text-white transition">Line / Area</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Canvas Container -->
+            <div class="w-full relative h-[340px] sm:h-[380px]">
+                <canvas id="trafficChart"></canvas>
+            </div>
+        </section>
+
+        <!-- Secondary Analytics Row: Breakdowns & Flows -->
+        <section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+            <!-- Left: Top Communicators (Sources & Destinations) -->
+            <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl space-y-4">
+                <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <h3 class="font-bold text-sm text-white">Top Active Devices</h3>
+                    <div class="flex rounded-md bg-slate-950 p-0.5 border border-slate-800 text-xs">
+                        <button id="tabTopSrc" onclick="switchBreakdownTab('src')" class="px-2 py-0.5 rounded font-medium bg-slate-800 text-indigo-300">Sources (From)</button>
+                        <button id="tabTopDst" onclick="switchBreakdownTab('dst')" class="px-2 py-0.5 rounded font-medium text-slate-400 hover:text-white">Dests (To)</button>
+                    </div>
+                </div>
+
+                <!-- Progress Bar list of top devices -->
+                <div id="topDevicesList" class="space-y-3 pt-1">
+                    <!-- Injected by JS -->
+                </div>
+            </div>
+
+            <!-- Right: Active Communication Pairs Table -->
+            <div class="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl space-y-4">
+                <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <div>
+                        <h3 class="font-bold text-sm text-white">Active Traffic Streams</h3>
+                        <p class="text-xs text-slate-400">Click any pair or IP to quickly filter</p>
+                    </div>
+                    <span id="streamCountBadge" class="text-xs px-2 py-0.5 bg-slate-800 text-slate-300 rounded-full font-mono">0 streams</span>
+                </div>
+
+                <div class="overflow-x-auto max-h-[310px] overflow-y-auto">
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead class="sticky top-0 z-10 bg-slate-950">
+                            <tr class="text-slate-400 border-b border-slate-800 bg-slate-950">
+                                <th class="py-2.5 px-3 font-semibold bg-slate-950">From (Source)</th>
+                                <th class="py-2.5 px-2 font-semibold text-center bg-slate-950">&rarr;</th>
+                                <th class="py-2.5 px-3 font-semibold bg-slate-950">To (Destination)</th>
+                                <th class="py-2.5 px-3 font-semibold text-right bg-slate-950">Packets</th>
+                                <th class="py-2.5 px-3 font-semibold text-right bg-slate-950">Volume</th>
+                                <th class="py-2.5 px-3 font-semibold text-center bg-slate-950">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="flowsTableBody" class="divide-y divide-slate-800/60">
+                            <!-- Injected by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- Modal: Device Nicknames / Aliases Manager -->
+    <div id="aliasModal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path></svg>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-white text-base">Device Nicknames</h3>
+                        <p class="text-xs text-slate-400">Assign friendly names to hotspot clients (e.g. 3D Printer)</p>
+                    </div>
+                </div>
+                <button onclick="closeAliasModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <!-- Add / Edit Form -->
+            <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-3">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-[11px] font-semibold text-slate-400 mb-1">IP Address</label>
+                        <input type="text" id="modalIpInput" placeholder="192.168.137.45" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-semibold text-slate-400 mb-1">Friendly Nickname</label>
+                        <input type="text" id="modalNameInput" placeholder="3D Printer (Voron)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500">
+                    </div>
+                </div>
+                <button onclick="saveAliasFromModal()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-1.5 px-3 rounded-lg text-xs transition shadow-md shadow-indigo-600/30">
+                    Save Device Name
+                </button>
+            </div>
+
+            <!-- List of existing devices -->
+            <div class="space-y-2">
+                <h4 class="text-xs font-semibold text-slate-300">Known Hotspot Devices</h4>
+                <div id="modalDeviceList" class="max-h-56 overflow-y-auto space-y-1.5 pr-1">
+                    <!-- Injected by JS -->
+                </div>
+            </div>
+
+            <div class="pt-2 flex justify-end">
+                <button onclick="closeAliasModal()" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Frontend Application Logic -->
+    <script>
+        // State
+        let chartInstance = null;
+        let chartDisplayType = 'bar';
+        let currentTabBreakdown = 'src';
+        let autoRefreshTimer = null;
+        let knownIps = [];
+        let knownPairs = [];
+        let lastFetchedData = null;
+        let isLiveMode = true;              // Live rolling window mode (default: true)
+        let activePresetMinutes = 15;       // Default: Last 15 minutes rolling
+
+        // Utilities
+        function formatBytes(bytes) {
+            if (!bytes || bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        function formatNumber(num) {
+            return new Intl.NumberFormat().format(num || 0);
+        }
+
+        function toLocalISOString(date) {
+            const pad = (n) => String(n).padStart(2, '0');
+            const yyyy = date.getFullYear();
+            const mm = pad(date.getMonth() + 1);
+            const dd = pad(date.getDate());
+            const hh = pad(date.getHours());
+            const min = pad(date.getMinutes());
+            return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+        }
+
+        // Live vs Static Mode Management
+        function setLiveMode(live) {
+            isLiveMode = live;
+            const btnLive = document.getElementById('btnLiveMode');
+            const btnStatic = document.getElementById('btnStaticMode');
+
+            if (isLiveMode) {
+                btnLive.className = 'flex items-center gap-1.5 px-3 py-1 rounded-md font-semibold bg-emerald-600 text-white shadow-sm transition';
+                btnStatic.className = 'flex items-center gap-1.5 px-3 py-1 rounded-md font-medium text-slate-400 hover:text-white transition';
+
+                // In live mode, default to 15m preset if none active
+                if (!activePresetMinutes) activePresetMinutes = 15;
+                rollWindowToNow();
+                fetchData();
+            } else {
+                btnStatic.className = 'flex items-center gap-1.5 px-3 py-1 rounded-md font-semibold bg-amber-600 text-white shadow-sm transition';
+                btnLive.className = 'flex items-center gap-1.5 px-3 py-1 rounded-md font-medium text-slate-400 hover:text-white transition';
+            }
+        }
+
+        // Advances the window to the current moment
+        function rollWindowToNow() {
+            const now = new Date();
+            let past;
+            if (activePresetMinutes) {
+                past = new Date(now.getTime() - (activePresetMinutes * 60 * 1000));
+            } else {
+                const s = document.getElementById('startTime').value;
+                const e = document.getElementById('endTime').value;
+                if (s && e) {
+                    const duration = new Date(e).getTime() - new Date(s).getTime();
+                    past = new Date(now.getTime() - Math.max(60000, duration));
+                } else {
+                    past = new Date(now.getTime() - 15 * 60 * 1000);
+                }
+            }
+            document.getElementById('endTime').value = toLocalISOString(now);
+            document.getElementById('startTime').value = toLocalISOString(past);
+        }
+
+        function setWindowPreset(minutes) {
+            activePresetMinutes = minutes;
+            document.querySelectorAll('.preset-btn').forEach(btn => {
+                if (parseInt(btn.getAttribute('data-minutes')) === minutes) {
+                    btn.className = 'preset-btn px-2.5 py-1 rounded-md text-xs font-semibold bg-indigo-600 text-white shadow-sm';
+                } else {
+                    btn.className = 'preset-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700 transition';
+                }
+            });
+            rollWindowToNow();
+            fetchData();
+        }
+
+        function handleManualDateChange() {
+            // When user explicitly inputs manual dates, freeze into Static mode
+            activePresetMinutes = null;
+            document.querySelectorAll('.preset-btn').forEach(btn => {
+                btn.className = 'preset-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700 transition';
+            });
+            if (isLiveMode) {
+                setLiveMode(false);
+            }
+            fetchData();
+        }
+
+        // Live Clock
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('liveClock').textContent = now.toLocaleTimeString();
+        }, 1000);
+
+        // Fetch System & Capture Status
+        async function checkStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                
+                const statusDot = document.getElementById('statusDot');
+                const ping = document.getElementById('statusDotPing');
+                const core = document.getElementById('statusDotCore');
+                const ifaceText = document.getElementById('ifaceText');
+
+                ifaceText.textContent = data.interface_display || data.interface || 'Wi-Fi';
+
+                if (data.is_mock) {
+                    // Yellow dot for Simulation / Demo Mode
+                    statusDot.title = "Simulation / Demo Mode";
+                    ping.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75";
+                    core.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500 shadow-sm shadow-amber-500/50";
+                } else if (data.running) {
+                    // Green dot for Active Packet Capture
+                    statusDot.title = `Capturing Active (${data.interface || 'Wi-Fi'})`;
+                    ping.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75";
+                    core.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-sm shadow-emerald-500/50";
+                } else {
+                    // Red dot for Inactive
+                    statusDot.title = "Capture Inactive";
+                    ping.className = "hidden";
+                    core.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500";
+                }
+            } catch (err) {
+                console.error("Status check failed", err);
+            }
+        }
+
+        // Populate Target Dropdown based on Mode
+        async function loadDevicesAndPairs() {
+            try {
+                const [ipsRes, pairsRes] = await fetchAll(['/api/ips', '/api/pairs']);
+                knownIps = ipsRes;
+                knownPairs = pairsRes;
+                populateTargetDropdown();
+            } catch (err) {
+                console.error("Failed to load devices/pairs", err);
+            }
+        }
+
+        async function fetchAll(urls) {
+            return Promise.all(urls.map(u => fetch(u).then(r => r.json())));
+        }
+
+        function populateTargetDropdown() {
+            const mode = document.getElementById('filterMode').value;
+            const select = document.getElementById('targetSelect');
+            const container = document.getElementById('targetSelectContainer');
+            const label = document.getElementById('targetLabel');
+            const currentValue = select.value;
+
+            if (mode === 'all') {
+                container.classList.add('opacity-40', 'pointer-events-none');
+                label.textContent = "All Hotspot Devices";
+                select.innerHTML = '<option value="">(All Hotspot Traffic)</option>';
+                return;
+            }
+
+            container.classList.remove('opacity-40', 'pointer-events-none');
+
+            if (mode === 'pair') {
+                label.textContent = "Select Pair (From → To)";
+                if (knownPairs.length === 0) {
+                    select.innerHTML = '<option value="">No pairs recorded yet</option>';
+                } else {
+                    select.innerHTML = knownPairs.map(p => `<option value="${p}">${p}</option>`).join('');
+                }
+            } else {
+                // IP based (host, from, to)
+                if (mode === 'host') label.textContent = "Select Host (In & Out)";
+                else if (mode === 'from') label.textContent = "Select Source IP (From)";
+                else if (mode === 'to') label.textContent = "Select Destination IP (To)";
+
+                if (knownIps.length === 0) {
+                    select.innerHTML = '<option value="">No devices found yet</option>';
+                } else {
+                    select.innerHTML = knownIps.map(item => {
+                        const name = item.alias ? `${item.alias} [${item.ip}]` : item.ip;
+                        return `<option value="${item.ip}">${name}</option>`;
+                    }).join('');
+                }
+            }
+
+            // Restore selection if still present
+            if (currentValue && select.querySelector(`option[value="${currentValue}"]`)) {
+                select.value = currentValue;
+            }
+        }
+
+        function handleFilterModeChange() {
+            populateTargetDropdown();
+            fetchData();
+        }
+
+        function resetFilters() {
+            document.getElementById('filterMode').value = 'all';
+            document.getElementById('bucketSelect').value = 'auto';
+            setLiveMode(true);
+            setWindowPreset(15);
+            populateTargetDropdown();
+            fetchData();
+        }
+
+        function setChartType(type) {
+            chartDisplayType = type;
+            const btnBar = document.getElementById('chartTypeBar');
+            const btnLine = document.getElementById('chartTypeLine');
+            if (type === 'bar') {
+                btnBar.className = 'px-2.5 py-1 rounded font-medium bg-indigo-600 text-white shadow-sm';
+                btnLine.className = 'px-2.5 py-1 rounded font-medium text-slate-400 hover:text-white transition';
+            } else {
+                btnLine.className = 'px-2.5 py-1 rounded font-medium bg-indigo-600 text-white shadow-sm';
+                btnBar.className = 'px-2.5 py-1 rounded font-medium text-slate-400 hover:text-white transition';
+            }
+            if (lastFetchedData) {
+                renderChart(lastFetchedData);
+            }
+        }
+
+        function switchBreakdownTab(tab) {
+            currentTabBreakdown = tab;
+            const btnSrc = document.getElementById('tabTopSrc');
+            const btnDst = document.getElementById('tabTopDst');
+            if (tab === 'src') {
+                btnSrc.className = 'px-2 py-0.5 rounded font-medium bg-slate-800 text-indigo-300';
+                btnDst.className = 'px-2 py-0.5 rounded font-medium text-slate-400 hover:text-white';
+            } else {
+                btnDst.className = 'px-2 py-0.5 rounded font-medium bg-slate-800 text-indigo-300';
+                btnSrc.className = 'px-2 py-0.5 rounded font-medium text-slate-400 hover:text-white';
+            }
+            if (lastFetchedData) {
+                renderTopDevices(lastFetchedData);
+            }
+        }
+
+        // Main Data Fetch
+        async function fetchData() {
+            const refreshIcon = document.getElementById('refreshIcon');
+            refreshIcon.classList.add('rotate-180');
+
+            // If in Live mode, advance rolling window to the current moment before querying
+            if (isLiveMode) {
+                rollWindowToNow();
+            }
+
+            const mode = document.getElementById('filterMode').value;
+            const value = document.getElementById('targetSelect').value;
+            const bucket = document.getElementById('bucketSelect').value;
+
+            const startInput = document.getElementById('startTime').value;
+            const endInput = document.getElementById('endTime').value;
+
+            const startEpoch = startInput ? Math.floor(new Date(startInput).getTime() / 1000) : 0;
+            const endEpoch = endInput ? Math.floor(new Date(endInput).getTime() / 1000) : Math.floor(Date.now() / 1000);
+
+            // Update description
+            const desc = document.getElementById('activeFilterDesc');
+            if (mode === 'all') {
+                desc.textContent = "Showing all network traffic across hotspot";
+            } else if (mode === 'host') {
+                desc.textContent = `Showing all traffic where host is ${value || 'selected'}`;
+            } else if (mode === 'from') {
+                desc.textContent = `Showing traffic originating FROM ${value || 'selected'}`;
+            } else if (mode === 'to') {
+                desc.textContent = `Showing traffic destined TO ${value || 'selected'}`;
+            } else if (mode === 'pair') {
+                desc.textContent = `Showing direct stream ${value || 'selected'}`;
+            }
+
+            try {
+                const url = `/api/data?mode=${mode}&value=${encodeURIComponent(value)}&start=${startEpoch}&end=${endEpoch}&bucket=${bucket}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                lastFetchedData = data;
+
+                // Update KPIs
+                document.getElementById('kpiTotalPackets').textContent = formatNumber(data.summary.total_packets);
+                document.getElementById('kpiTotalVolume').textContent = formatBytes(data.summary.total_bytes);
+                document.getElementById('kpiPeakRate').textContent = formatNumber(data.summary.peak_rate);
+                document.getElementById('kpiActivePairs').textContent = data.summary.active_pairs;
+                document.getElementById('kpiBucketDesc').textContent = `Bucket: ${formatBucketLabel(data.bucket_seconds)}`;
+
+                // Update Chart Resolution Pill
+                document.getElementById('chartResolutionPill').textContent = `Bucket: ${formatBucketLabel(data.bucket_seconds)}`;
+
+                // Render Chart & Panels
+                renderChart(data);
+                renderTopDevices(data);
+                renderFlowsTable(data);
+
+            } catch (err) {
+                console.error("Fetch data error:", err);
+            } finally {
+                setTimeout(() => refreshIcon.classList.remove('rotate-180'), 500);
+            }
+        }
+
+        function formatBucketLabel(sec) {
+            if (sec < 60) return `${sec}s`;
+            if (sec === 60) return '1 Minute';
+            if (sec < 3600) return `${Math.floor(sec / 60)} Minutes`;
+            return `${Math.floor(sec / 3600)} Hour(s)`;
+        }
+
+        // Render Chart
+        function renderChart(data) {
+            const ctx = document.getElementById('trafficChart').getContext('2d');
+            const timeline = data.timeline || [];
+
+            const labels = timeline.map(d => {
+                const dt = new Date(d.time);
+                // If spanning more than 24h, show date + time, otherwise just time
+                const isMultiDay = (data.filter.end - data.filter.start) > 86400;
+                return isMultiDay 
+                    ? dt.toLocaleDateString([], {month:'short', day:'numeric'}) + ' ' + dt.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+                    : dt.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+            });
+
+            const packetCounts = timeline.map(d => d.count);
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            // Create gradient
+            const gradient = ctx.createLinearGradient(0, 0, 0, 320);
+            gradient.addColorStop(0, 'rgba(99, 102, 241, 0.45)');
+            gradient.addColorStop(1, 'rgba(99, 102, 241, 0.02)');
+
+            const isBar = chartDisplayType === 'bar';
+
+            chartInstance = new Chart(ctx, {
+                type: isBar ? 'bar' : 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Packets',
+                        data: packetCounts,
+                        backgroundColor: isBar ? '#6366f1' : gradient,
+                        borderColor: '#818cf8',
+                        borderWidth: isBar ? 1 : 2,
+                        borderRadius: isBar ? 4 : 0,
+                        fill: !isBar,
+                        tension: 0.35,
+                        pointRadius: isBar ? 0 : (timeline.length > 50 ? 0 : 3),
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: '#c7d2fe',
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#0f172a',
+                            titleColor: '#e2e8f0',
+                            bodyColor: '#cbd5e1',
+                            borderColor: '#334155',
+                            borderWidth: 1,
+                            padding: 10,
+                            displayColors: false,
+                            callbacks: {
+                                title: function(context) {
+                                    const index = context[0].dataIndex;
+                                    const item = timeline[index];
+                                    return new Date(item.time).toLocaleString();
+                                },
+                                label: function(context) {
+                                    const index = context.dataIndex;
+                                    const item = timeline[index];
+                                    return [
+                                        `Packets: ${formatNumber(item.count)}`,
+                                        `Est Volume: ${formatBytes(item.bytes)}`
+                                    ];
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(51, 65, 85, 0.3)' },
+                            ticks: {
+                                color: '#94a3b8',
+                                maxRotation: 0,
+                                autoSkip: true,
+                                maxTicksLimit: 10,
+                                font: { size: 11 }
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(51, 65, 85, 0.3)' },
+                            ticks: {
+                                color: '#94a3b8',
+                                font: { size: 11 },
+                                callback: function(val) {
+                                    return val >= 1000 ? (val/1000).toFixed(0) + 'k' : val;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Render Top Sources / Dests
+        function renderTopDevices(data) {
+            const container = document.getElementById('topDevicesList');
+            const items = currentTabBreakdown === 'src' ? data.top_sources : data.top_dests;
+            const total = data.summary.total_packets || 1;
+
+            if (!items || items.length === 0) {
+                container.innerHTML = '<div class="text-xs text-slate-500 py-6 text-center">No traffic recorded for this window.</div>';
+                return;
+            }
+
+            container.innerHTML = items.map(item => {
+                const percent = Math.min(100, Math.round((item.count / total) * 100));
+                const aliasDisplay = item.alias ? `<span class="text-indigo-400 font-semibold">${item.alias}</span> <span class="text-slate-500 font-mono text-[11px]">(${item.ip})</span>` : `<span class="font-mono text-slate-200">${item.ip}</span>`;
+
+                return `
+                    <div class="space-y-1 group">
+                        <div class="flex items-center justify-between text-xs">
+                            <div class="truncate max-w-[220px]">
+                                ${aliasDisplay}
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="font-mono font-medium text-slate-300">${formatNumber(item.count)} pkts</span>
+                                <span class="text-[10px] text-slate-500">(${percent}%)</span>
+                                <button onclick="quickFilterIp('${item.ip}')" title="Filter this IP" class="opacity-0 group-hover:opacity-100 transition p-1 hover:bg-slate-800 rounded text-indigo-400">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
+                            <div class="bg-gradient-to-r from-indigo-500 to-cyan-400 h-1.5 rounded-full" style="width: ${percent}%"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Render Active Flows Table
+        function renderFlowsTable(data) {
+            const tbody = document.getElementById('flowsTableBody');
+            const flows = data.top_pairs || [];
+            document.getElementById('streamCountBadge').textContent = `${flows.length} streams`;
+
+            if (flows.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-slate-500">No active flows in selected window.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = flows.map(f => {
+                const srcLabel = f.src_alias ? `<span class="text-indigo-400 font-medium">${f.src_alias}</span><br><span class="text-slate-500 font-mono text-[10px]">${f.src_ip}</span>` : `<span class="font-mono text-slate-300">${f.src_ip}</span>`;
+                const dstLabel = f.dst_alias ? `<span class="text-indigo-400 font-medium">${f.dst_alias}</span><br><span class="text-slate-500 font-mono text-[10px]">${f.dst_ip}</span>` : `<span class="font-mono text-slate-300">${f.dst_ip}</span>`;
+
+                return `
+                    <tr class="hover:bg-slate-800/40 transition group">
+                        <td class="py-2.5 px-3">${srcLabel}</td>
+                        <td class="py-2.5 px-2 text-center text-slate-500">&rarr;</td>
+                        <td class="py-2.5 px-3">${dstLabel}</td>
+                        <td class="py-2.5 px-3 text-right font-mono font-medium text-slate-200">${formatNumber(f.count)}</td>
+                        <td class="py-2.5 px-3 text-right font-mono text-slate-400">${formatBytes(f.bytes)}</td>
+                        <td class="py-2.5 px-3 text-center">
+                            <div class="flex items-center justify-center gap-1.5">
+                                <button onclick="quickFilterPair('${f.pair}')" title="Filter exact stream" class="px-2 py-1 bg-slate-800 hover:bg-indigo-600 hover:text-white text-indigo-400 rounded text-[11px] font-medium transition">
+                                    Filter
+                                </button>
+                                <button onclick="openAliasForIp('${f.src_ip}')" title="Rename source" class="p-1 hover:bg-slate-800 text-slate-500 hover:text-slate-300 rounded transition">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Quick Filter Helpers
+        function quickFilterIp(ip) {
+            document.getElementById('filterMode').value = 'host';
+            populateTargetDropdown();
+            document.getElementById('targetSelect').value = ip;
+            fetchData();
+        }
+
+        function quickFilterPair(pair) {
+            document.getElementById('filterMode').value = 'pair';
+            populateTargetDropdown();
+            document.getElementById('targetSelect').value = pair;
+            fetchData();
+        }
+
+        // Alias Modal Functions
+        function openAliasModal() {
+            document.getElementById('aliasModal').classList.remove('hidden');
+            renderModalDevices();
+        }
+
+        function closeAliasModal() {
+            document.getElementById('aliasModal').classList.add('hidden');
+            document.getElementById('modalIpInput').value = '';
+            document.getElementById('modalNameInput').value = '';
+        }
+
+        function openAliasForIp(ip) {
+            const found = knownIps.find(i => i.ip === ip);
+            document.getElementById('modalIpInput').value = ip;
+            document.getElementById('modalNameInput').value = found ? found.alias : '';
+            openAliasModal();
+        }
+
+        function renderModalDevices() {
+            const list = document.getElementById('modalDeviceList');
+            if (knownIps.length === 0) {
+                list.innerHTML = '<div class="text-xs text-slate-500 py-2">No devices discovered yet.</div>';
+                return;
+            }
+
+            list.innerHTML = knownIps.map(item => `
+                <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800/80 text-xs">
+                    <div>
+                        <span class="font-mono text-slate-200 font-semibold">${item.ip}</span>
+                        ${item.alias ? `<span class="ml-2 px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 font-medium">${item.alias}</span>` : ''}
+                    </div>
+                    <button onclick="openAliasForIp('${item.ip}')" class="text-indigo-400 hover:text-indigo-300 font-medium">Edit</button>
+                </div>
+            `).join('');
+        }
+
+        async function saveAliasFromModal() {
+            const ip = document.getElementById('modalIpInput').value.trim();
+            const name = document.getElementById('modalNameInput').value.trim();
+            if (!ip) return;
+
+            try {
+                await fetch('/api/aliases', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ip, name })
+                });
+                await loadDevicesAndPairs();
+                renderModalDevices();
+                fetchData();
+                closeAliasModal();
+            } catch (err) {
+                console.error("Save alias error:", err);
+            }
+        }
+
+        // Auto Refresh Timer Management
+        document.getElementById('autoRefreshSelect').addEventListener('change', (e) => {
+            const sec = parseInt(e.target.value);
+            if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+            if (sec > 0) {
+                autoRefreshTimer = setInterval(() => {
+                    checkStatus();
+                    loadDevicesAndPairs();
+                    fetchData();
+                }, sec * 1000);
+            }
+        });
+
+        // App Initialization
+        window.addEventListener('DOMContentLoaded', async () => {
+            setLiveMode(true);
+            setWindowPreset(15);
+            await checkStatus();
+            await loadDevicesAndPairs();
+            await fetchData();
+
+            // Set default 10s auto-refresh
+            autoRefreshTimer = setInterval(() => {
+                checkStatus();
+                fetchData();
+            }, 10000);
+        });
+    </script>
+</body>
+</html>
