@@ -1,6 +1,6 @@
-# Wi-Fi Hotspot Packet Monitor (3D Printer & IoT)
+# Network Traffic Monitor
 
-A lightweight, real-time network packet and traffic volume monitor built specifically for laptops acting as a Wi-Fi hotspot for a 3D printer (Klipper / Moonraker, OctoPrint, Bambu Lab, RepRap, etc.) and other connected devices.
+A lightweight, real-time network packet and traffic volume monitor built for tracking connected devices, IoT clients, and local network traffic.
 
 ---
 

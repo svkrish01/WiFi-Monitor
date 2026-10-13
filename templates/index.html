@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wi-Fi Hotspot Traffic Monitor</title>
+    <title>Network Traffic Monitor</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -47,7 +47,7 @@
                 </div>
                 <div>
                     <div class="flex items-center gap-2.5">
-                        <h1 class="font-bold text-lg text-white tracking-tight">Hotspot Traffic Monitor</h1>
+                        <h1 class="font-bold text-lg text-white tracking-tight">Network Traffic Monitor</h1>
                         <span id="statusDot" title="Connecting..." class="relative flex h-2.5 w-2.5 cursor-help">
                             <span id="statusDotPing" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                             <span id="statusDotCore" class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
@@ -87,6 +87,18 @@
     </header>
 
     <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+        <!-- Capture Error Banner -->
+        <div id="captureErrorBanner" class="hidden bg-rose-950/70 border border-rose-800/80 rounded-xl p-3.5 text-xs text-rose-300 flex items-start gap-3 shadow-lg">
+            <svg class="w-5 h-5 text-rose-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+            </svg>
+            <div class="space-y-1">
+                <p class="font-semibold text-rose-200">Packet Capture Inactive</p>
+                <p class="font-mono text-rose-300/90 text-[11px]" id="captureErrorDetail"></p>
+                <p class="text-rose-400/90 text-[11px]" id="captureErrorHelp"></p>
+            </div>
+        </div>
 
         <!-- Controls & Filters Section -->
         <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl space-y-4">
@@ -330,8 +342,8 @@
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path></svg>
                     </div>
                     <div>
-                        <h3 class="font-bold text-white text-base">Device Nicknames</h3>
-                        <p class="text-xs text-slate-400">Assign friendly names to hotspot clients (e.g. 3D Printer)</p>
+                        <h3 class="font-bold text-white text-base">Device Nicknames & Known Devices</h3>
+                        <p class="text-xs text-slate-400">Assign friendly names to network clients or clear stored device records</p>
                     </div>
                 </div>
                 <button onclick="closeAliasModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">
@@ -348,23 +360,41 @@
                     </div>
                     <div>
                         <label class="block text-[11px] font-semibold text-slate-400 mb-1">Friendly Nickname</label>
-                        <input type="text" id="modalNameInput" placeholder="3D Printer (Voron)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500">
+                        <input type="text" id="modalNameInput" placeholder="e.g. My Phone, Workstation" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500">
                     </div>
                 </div>
-                <button onclick="saveAliasFromModal()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-1.5 px-3 rounded-lg text-xs transition shadow-md shadow-indigo-600/30">
-                    Save Device Name
-                </button>
+                <div class="flex items-center gap-2">
+                    <button onclick="saveAliasFromModal()" class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-1.5 px-3 rounded-lg text-xs transition shadow-md shadow-indigo-600/30">
+                        Save Device Name
+                    </button>
+                    <button onclick="clearModalForm()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium transition">
+                        Clear Form
+                    </button>
+                </div>
             </div>
 
             <!-- List of existing devices -->
             <div class="space-y-2">
-                <h4 class="text-xs font-semibold text-slate-300">Known Hotspot Devices</h4>
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <h4 class="text-xs font-semibold text-slate-300">Known Network Devices</h4>
+                        <span id="modalDeviceCountBadge" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">0</span>
+                    </div>
+                    <button onclick="clearAllNicknames()" class="text-[11px] text-amber-400 hover:text-amber-300 hover:underline font-medium flex items-center gap-1 transition">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        Clear All Nicknames
+                    </button>
+                </div>
                 <div id="modalDeviceList" class="max-h-56 overflow-y-auto space-y-1.5 pr-1">
                     <!-- Injected by JS -->
                 </div>
             </div>
 
-            <div class="pt-2 flex justify-end">
+            <div class="pt-3 border-t border-slate-800/80 flex items-center justify-between">
+                <button onclick="clearAllTrafficData()" class="text-[11px] text-slate-400 hover:text-rose-400 transition flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    Reset Traffic History
+                </button>
                 <button onclick="closeAliasModal()" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg">Close</button>
             </div>
         </div>
@@ -490,21 +520,42 @@
 
                 ifaceText.textContent = data.interface_display || data.interface || 'Wi-Fi';
 
+                const errBanner = document.getElementById('captureErrorBanner');
+                const errDetail = document.getElementById('captureErrorDetail');
+                const errHelp = document.getElementById('captureErrorHelp');
+
                 if (data.is_mock) {
                     // Yellow dot for Simulation / Demo Mode
                     statusDot.title = "Simulation / Demo Mode";
                     ping.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75";
                     core.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500 shadow-sm shadow-amber-500/50";
+                    if (errBanner) errBanner.classList.add('hidden');
                 } else if (data.running) {
                     // Green dot for Active Packet Capture
                     statusDot.title = `Capturing Active (${data.interface || 'Wi-Fi'})`;
                     ping.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75";
                     core.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-sm shadow-emerald-500/50";
+                    if (errBanner) errBanner.classList.add('hidden');
                 } else {
                     // Red dot for Inactive
-                    statusDot.title = "Capture Inactive";
+                    statusDot.title = data.error_message ? `Capture Inactive: ${data.error_message}` : "Capture Inactive";
                     ping.className = "hidden";
-                    core.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500";
+                    core.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 shadow-sm shadow-rose-500/50";
+
+                    if (errBanner && data.error_message) {
+                        errBanner.classList.remove('hidden');
+                        errDetail.textContent = data.error_message;
+                        const low = data.error_message.toLowerCase();
+                        if (low.includes('permission') || low.includes('dumpcap')) {
+                            errHelp.innerHTML = '<strong>Fix on Ubuntu:</strong> Run <code class="bg-rose-900/80 px-1 py-0.5 rounded font-mono text-white">sudo setcap \'CAP_NET_RAW+eip CAP_NET_ADMIN+eip\' /usr/bin/dumpcap</code> or <code class="bg-rose-900/80 px-1 py-0.5 rounded font-mono text-white">sudo usermod -aG wireshark $USER && newgrp wireshark</code>.';
+                        } else if (low.includes('no such device')) {
+                            errHelp.innerHTML = '<strong>Fix:</strong> Interface not found. Run <code class="bg-rose-900/80 px-1 py-0.5 rounded font-mono text-white">python app.py -L</code> to check valid interface names on this machine.';
+                        } else {
+                            errHelp.textContent = '';
+                        }
+                    } else if (errBanner) {
+                        errBanner.classList.add('hidden');
+                    }
                 }
             } catch (err) {
                 console.error("Status check failed", err);
@@ -536,8 +587,8 @@
 
             if (mode === 'all') {
                 container.classList.add('opacity-40', 'pointer-events-none');
-                label.textContent = "All Hotspot Devices";
-                select.innerHTML = '<option value="">(All Hotspot Traffic)</option>';
+                label.textContent = "All Network Devices";
+                select.innerHTML = '<option value="">(All Network Traffic)</option>';
                 return;
             }
 
@@ -641,7 +692,7 @@
             // Update description
             const desc = document.getElementById('activeFilterDesc');
             if (mode === 'all') {
-                desc.textContent = "Showing all network traffic across hotspot";
+                desc.textContent = "Showing all network traffic";
             } else if (mode === 'host') {
                 desc.textContent = `Showing all traffic where host is ${value || 'selected'}`;
             } else if (mode === 'from') {
@@ -890,6 +941,10 @@
 
         function closeAliasModal() {
             document.getElementById('aliasModal').classList.add('hidden');
+            clearModalForm();
+        }
+
+        function clearModalForm() {
             document.getElementById('modalIpInput').value = '';
             document.getElementById('modalNameInput').value = '';
         }
@@ -897,24 +952,37 @@
         function openAliasForIp(ip) {
             const found = knownIps.find(i => i.ip === ip);
             document.getElementById('modalIpInput').value = ip;
-            document.getElementById('modalNameInput').value = found ? found.alias : '';
+            document.getElementById('modalNameInput').value = found ? (found.alias || '') : '';
             openAliasModal();
         }
 
         function renderModalDevices() {
             const list = document.getElementById('modalDeviceList');
+            const badge = document.getElementById('modalDeviceCountBadge');
+            if (badge) badge.textContent = knownIps.length;
+
             if (knownIps.length === 0) {
-                list.innerHTML = '<div class="text-xs text-slate-500 py-2">No devices discovered yet.</div>';
+                list.innerHTML = '<div class="text-xs text-slate-500 py-3 text-center">No devices discovered yet.</div>';
                 return;
             }
 
             list.innerHTML = knownIps.map(item => `
-                <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800/80 text-xs">
-                    <div>
+                <div class="flex items-center justify-between p-2.5 rounded-lg bg-slate-950 border border-slate-800/80 text-xs hover:border-slate-700/80 transition">
+                    <div class="min-w-0 pr-2">
                         <span class="font-mono text-slate-200 font-semibold">${item.ip}</span>
-                        ${item.alias ? `<span class="ml-2 px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 font-medium">${item.alias}</span>` : ''}
+                        ${item.alias ? `<span class="ml-2 px-2 py-0.5 rounded bg-indigo-950/80 border border-indigo-800/50 text-indigo-300 font-medium inline-block truncate max-w-[150px] align-middle">${item.alias}</span>` : ''}
+                        ${item.total_packets ? `<span class="ml-1 text-[10px] text-slate-500 font-mono">(${formatNumber(item.total_packets)} pkts)</span>` : ''}
                     </div>
-                    <button onclick="openAliasForIp('${item.ip}')" class="text-indigo-400 hover:text-indigo-300 font-medium">Edit</button>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <button onclick="openAliasForIp('${item.ip}')" class="text-indigo-400 hover:text-indigo-300 font-medium px-1.5 py-0.5 hover:bg-slate-800 rounded transition">Edit</button>
+                        ${item.alias ? `
+                        <button onclick="deleteAliasForIp('${item.ip}')" title="Clear device nickname" class="text-amber-400 hover:text-amber-300 font-medium px-1.5 py-0.5 hover:bg-slate-800 rounded transition">
+                            Clear Name
+                        </button>` : ''}
+                        <button onclick="removeDeviceCompletely('${item.ip}')" title="Remove device and its history entirely" class="text-slate-500 hover:text-rose-400 p-1 hover:bg-slate-800 rounded transition">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                    </div>
                 </div>
             `).join('');
         }
@@ -936,6 +1004,59 @@
                 closeAliasModal();
             } catch (err) {
                 console.error("Save alias error:", err);
+            }
+        }
+
+        async function deleteAliasForIp(ip) {
+            try {
+                await fetch(`/api/aliases/${encodeURIComponent(ip)}`, { method: 'DELETE' });
+                await loadDevicesAndPairs();
+                renderModalDevices();
+                fetchData();
+            } catch (err) {
+                console.error("Delete alias error:", err);
+            }
+        }
+
+        async function clearAllNicknames() {
+            if (!confirm("Are you sure you want to clear all device nicknames? Device IPs will revert to raw numerical addresses.")) {
+                return;
+            }
+            try {
+                await fetch('/api/aliases/clear', { method: 'POST' });
+                await loadDevicesAndPairs();
+                renderModalDevices();
+                fetchData();
+            } catch (err) {
+                console.error("Clear all nicknames error:", err);
+            }
+        }
+
+        async function removeDeviceCompletely(ip) {
+            if (!confirm(`Remove device ${ip} and all its captured traffic history?`)) {
+                return;
+            }
+            try {
+                await fetch(`/api/devices/${encodeURIComponent(ip)}`, { method: 'DELETE' });
+                await loadDevicesAndPairs();
+                renderModalDevices();
+                fetchData();
+            } catch (err) {
+                console.error("Remove device error:", err);
+            }
+        }
+
+        async function clearAllTrafficData() {
+            if (!confirm("Are you sure you want to clear all traffic history? This will reset all packet counters and remove discovered streams.")) {
+                return;
+            }
+            try {
+                await fetch('/api/traffic/clear', { method: 'POST' });
+                await loadDevicesAndPairs();
+                renderModalDevices();
+                fetchData();
+            } catch (err) {
+                console.error("Clear all traffic error:", err);
             }
         }
 

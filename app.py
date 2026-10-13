@@ -7,6 +7,7 @@ import argparse
 import random
 import threading
 import subprocess
+from urllib.parse import unquote
 from flask import Flask, jsonify, request, render_template
 
 app = Flask(__name__)
@@ -108,11 +109,11 @@ def run_mock_traffic():
         cursor = conn.execute("SELECT COUNT(*) FROM device_aliases")
         if cursor.fetchone()[0] == 0:
             defaults = [
-                ("192.168.137.1", "Laptop Hotspot (Host)"),
-                ("192.168.137.45", "3D Printer (Klipper / Moonraker)"),
-                ("192.168.137.89", "Workstation (Slicer / Orca)"),
-                ("192.168.137.12", "Mobile Phone (Dashboard)"),
-                ("1.1.1.1", "Cloud DNS")
+                ("192.168.137.1", "Hotspot Host (Laptop)"),
+                ("192.168.137.45", "Connected Device 1"),
+                ("192.168.137.89", "Connected Device 2"),
+                ("192.168.137.12", "Mobile Phone"),
+                ("1.1.1.1", "DNS Resolver")
             ]
             conn.executemany("INSERT OR IGNORE INTO device_aliases (ip, name, updated_at) VALUES (?, ?, ?)",
                              [(ip, name, int(time.time())) for ip, name in defaults])
@@ -385,9 +386,33 @@ def capture_traffic(interface):
 
             except (ValueError, IndexError):
                 continue
-    except Exception as e:
-        print(f"[Capture Error] {e}", file=sys.stderr)
     finally:
+        # Check why tshark exited
+        ret = process.poll()
+        err_msg = ""
+        try:
+            err_msg = process.stderr.read().strip()
+        except Exception:
+            pass
+
+        if err_msg:
+            print(f"\n[!] tshark error output:\n    {err_msg}", file=sys.stderr)
+            MONITOR_STATUS["error_message"] = err_msg
+            if "permission denied" in err_msg.lower() or "dumpcap" in err_msg.lower():
+                print("\n" + "="*60, file=sys.stderr)
+                print(" [!] LINUX PERMISSION ISSUE DETECTED:", file=sys.stderr)
+                print("     tshark cannot capture packets as your current user.", file=sys.stderr)
+                print("     Run this one command on Ubuntu to fix it immediately:", file=sys.stderr)
+                print("       sudo setcap 'CAP_NET_RAW+eip CAP_NET_ADMIN+eip' /usr/bin/dumpcap", file=sys.stderr)
+                print("     Or run:", file=sys.stderr)
+                print("       sudo usermod -aG wireshark $USER && newgrp wireshark", file=sys.stderr)
+                print("="*60 + "\n", file=sys.stderr)
+            elif "no such device" in err_msg.lower():
+                print("\n" + "="*60, file=sys.stderr)
+                print(f" [!] NETWORK INTERFACE '{interface}' NOT FOUND ON THIS SYSTEM.", file=sys.stderr)
+                print("     Run 'python app.py -L' or 'ip link' to see available interfaces.", file=sys.stderr)
+                print("="*60 + "\n", file=sys.stderr)
+
         # Final flush on shutdown
         if current_minute != 0 and minute_counts:
             flush_minute_counts(current_minute, minute_counts)
@@ -452,8 +477,10 @@ def get_ips():
         """
         cursor = conn.execute(query)
         result = []
+        seen_ips = set()
         for r in cursor.fetchall():
             ip = r["ip"]
+            seen_ips.add(ip)
             result.append({
                 "ip": ip,
                 "alias": aliases.get(ip, ""),
@@ -463,6 +490,19 @@ def get_ips():
                 "first_seen": r["first_seen"],
                 "last_seen": r["last_seen"]
             })
+
+        for ip, name in aliases.items():
+            if ip not in seen_ips:
+                result.append({
+                    "ip": ip,
+                    "alias": name,
+                    "display_name": f"{name} ({ip})" if name else ip,
+                    "total_packets": 0,
+                    "total_bytes": 0,
+                    "first_seen": None,
+                    "last_seen": None
+                })
+
         return jsonify(result)
 
 @app.route('/api/data')
@@ -642,8 +682,14 @@ def get_data():
         "top_pairs": top_pairs
     })
 
-@app.route('/api/aliases', methods=['GET', 'POST'])
+@app.route('/api/aliases', methods=['GET', 'POST', 'DELETE'])
 def handle_aliases():
+    if request.method == 'DELETE':
+        with get_db() as conn:
+            conn.execute("DELETE FROM device_aliases")
+            conn.commit()
+        return jsonify({"success": True, "message": "All device nicknames cleared"})
+
     if request.method == 'POST':
         data = request.get_json(silent=True) or {}
         ip = data.get('ip', '').strip()
@@ -667,17 +713,44 @@ def handle_aliases():
         cursor = conn.execute("SELECT ip, name FROM device_aliases ORDER BY ip")
         return jsonify({row[0]: row[1] for row in cursor.fetchall()})
 
+@app.route('/api/aliases/clear', methods=['POST', 'DELETE'])
+def clear_all_aliases():
+    """Clears all device nicknames from the database"""
+    with get_db() as conn:
+        conn.execute("DELETE FROM device_aliases")
+        conn.commit()
+    return jsonify({"success": True, "message": "All device nicknames cleared"})
+
 @app.route('/api/aliases/<path:ip>', methods=['DELETE'])
 def delete_alias(ip):
+    clean_ip = unquote(ip).strip()
     with get_db() as conn:
-        conn.execute("DELETE FROM device_aliases WHERE ip = ?", (ip,))
+        conn.execute("DELETE FROM device_aliases WHERE ip = ?", (clean_ip,))
         conn.commit()
-    return jsonify({"success": True})
+    return jsonify({"success": True, "ip": clean_ip})
+
+@app.route('/api/devices/<path:ip>', methods=['DELETE'])
+def delete_device(ip):
+    """Deletes all traffic records and any assigned alias for a specific device IP"""
+    clean_ip = unquote(ip).strip()
+    with get_db() as conn:
+        conn.execute("DELETE FROM traffic WHERE src_ip = ? OR dst_ip = ?", (clean_ip, clean_ip))
+        conn.execute("DELETE FROM device_aliases WHERE ip = ?", (clean_ip,))
+        conn.commit()
+    return jsonify({"success": True, "message": f"Device {clean_ip} and its history removed", "ip": clean_ip})
+
+@app.route('/api/traffic/clear', methods=['POST', 'DELETE'])
+def clear_traffic():
+    """Clears all traffic records from the database"""
+    with get_db() as conn:
+        conn.execute("DELETE FROM traffic")
+        conn.commit()
+    return jsonify({"success": True, "message": "All traffic history cleared"})
 
 def main():
     tshark_path = get_tshark_path()
 
-    parser = argparse.ArgumentParser(description="WiFi Hotspot Packet Monitor")
+    parser = argparse.ArgumentParser(description="Network Traffic Monitor")
     parser.add_argument("-i", "--interface", default=None,
                         help="Network interface to capture (e.g. wlp6s0 on Linux, 'Wi-Fi' or interface index on Windows)")
     parser.add_argument("-L", "--list-interfaces", action="store_true",
@@ -731,8 +804,8 @@ def main():
         else:
             threading.Thread(target=capture_traffic, args=(interface,), daemon=True).start()
 
-    print(f"\n[*] Starting Wi-Fi Monitor Web Server on http://{args.host}:{args.port}")
-    print(f"[*] Accessible from hotspot devices (e.g., http://<laptop-hotspot-ip>:{args.port})")
+    print(f"\n[*] Starting Network Traffic Monitor Web Server on http://{args.host}:{args.port}")
+    print(f"[*] Accessible across network devices (e.g., http://<host-ip>:{args.port})")
     app.run(host=args.host, port=args.port, debug=False)
 
 if __name__ == '__main__':
